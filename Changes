@@ -1,0 +1,6 @@
+Revision history for Perl extension File::Tee.
+
+0.01  Mon Oct 15 10:55:24 2007
+	- original version; created by h2xs 1.23 with options
+		-AXn File::Tee
+
