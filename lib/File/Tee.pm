@@ -1,6 +1,6 @@
 package File::Tee;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use strict;
 use warnings;
@@ -114,12 +114,24 @@ sub tee (*;@) {
         push @target, \%target;
     }
 
-    open my $out, '>&', $fh
-        or return undef;
+    my $fileno = eval { fileno($fh) };
 
+    defined $fileno
+        or croak "only real file handles can be tee'ed";
+
+    unless (defined $fileno) {
+        return undef;
+    }
+
+    # flush any data buffered in $fh
     my $oldsel = select($fh);
     my @oldstate = ($|, $%, $=, $-, $~, $^, $.);
-    select $out;
+    $| = 1;
+    select $oldsel;
+
+    open my $out, ">&$fileno" or return undef;
+
+    $oldsel = select $out;
     $| = $oldstate[0];
     select $oldsel;
 
