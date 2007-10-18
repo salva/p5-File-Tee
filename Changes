@@ -1,5 +1,12 @@
 Revision history for Perl extension File::Tee.
 
+0.03  Oct 18, 2007
+        - new ignore_errors option added
+        - new begin and end options added
+        - new 'process => sub {}' option added
+        - process option renamed to preprocess
+        - require 5.6.x
+
 0.02  Oct 17, 2007
         - backport to 5.6.x
 

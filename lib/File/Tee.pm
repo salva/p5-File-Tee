@@ -1,6 +1,6 @@
 package File::Tee;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 use strict;
 use warnings;
@@ -27,86 +27,100 @@ sub tee (*;@) {
     while (@_) {
         my $arg = shift @_;
         my %target;
-        my %opts = ( ref $arg eq 'HASH'
-                     ? %$arg
-                     : ( open => $arg ) ); 
+        my %opts = ( ref $arg eq 'HASH' ? %$arg :
+                     ref $arg eq 'CODE' ? ( process => $arg ) :
+                                          ( open => $arg ) );
 
-        $target{lock} = delete $opts{lock};
+        $target{ignore_errors} = delete $opts{ignore_errors};
         $target{prefix} = delete $opts{prefix};
+        $target{end} = delete $opts{end};
+        $target{begin} = delete $opts{begin};
+        $target{preprocess} = delete $opts{preprocess};
         $target{process} = delete $opts{process};
-        $target{mode} = delete $opts{mode};
-        $target{open} = delete $opts{open};
-        $target{reopen} = delete $opts{reopen};
-        $target{autoflush} = delete $opts{autoflush};
+        unless (defined $target{process}) {
+            $target{mode} = delete $opts{mode};
+            $target{open} = delete $opts{open};
+            $target{reopen} = delete $opts{reopen};
+            $target{autoflush} = delete $opts{autoflush};
+            $target{lock} = delete $opts{lock};
+        }
 
         %opts and croak "bad options '".join("', '", keys %opts)."'";
 
-        if (defined $target{reopen}) {
-            croak "both 'open' and 'reopen' options used for the same target"
-                if defined $target{open};
-            $target{open} = $target{reopen};
-            $target{reopen} = 1;
-        }
-        elsif (!defined $target{open}) {
-            croak "missing mandatory argument 'open'";
-        }
-
-        $target{autoflush} = 1 unless defined $target{autoflush};
-
-        $target{open} = [$target{open}]
-            unless ref $target{open} eq 'ARRAY';
-
-        unless (defined $target{mode}) {
-            if (ref $target{open}[0]) {
-                $target{mode} = (defined $last_mode ? $last_mode : '>>&');
+        unless (defined $target{process}) {
+            if (defined $target{reopen}) {
+                croak "both 'open' and 'reopen' options used for the same target"
+                    if defined $target{open};
+                $target{open} = $target{reopen};
+                $target{reopen} = 1;
             }
-            else {
-                my ($mode, $fn) = shift(@{$target{open}}) =~ /^(\+?[<>]{1,2}(?:&=?)?|\|-?|)\s*(.*)$/;
-
-                $mode = (defined $last_mode ? $last_mode : '>>') unless length $mode;
-                $mode = '|-' if $mode eq '|';
-
-                unshift @{$target{open}}, $fn
-                    if length $fn;
-
-                $target{mode} = $mode;
+            elsif (!defined $target{open}) {
+                croak "missing mandatory argument 'open'";
             }
-        }
 
-        $target{mode} =~ /^(?:>{1,2}&?|\|-)$/ or croak "invalid mode '$target{mode}'";
+            $target{autoflush} = 1 unless defined $target{autoflush};
 
-        unless (@{$target{open}} > 0) {
-            if (ref $arg ne 'HASH' and @_) {
-                if ($target{mode} eq '|-') {
-                    @{$target{open}} = splice @_;
+            $target{open} = [$target{open}]
+                unless ref $target{open} eq 'ARRAY';
+            unless (defined $target{mode}) {
+                if (ref $target{open}[0]) {
+                    if (ref $target{open}[0] eq 'CODE') {
+                        $target{mode} = 'CODE';
+                    }
+                    else {
+                        $target{mode} = (defined $last_mode ? $last_mode : '>>&');
+                    }
                 }
                 else {
-                    my $last_mode = $target{mode};
-                    @{$target{open}} = shift;
+                    my ($mode, $fn) = shift(@{$target{open}}) =~ /^(\+?[<>]{1,2}(?:&=?)?|\|-?|)\s*(.*)$/;
+
+                    $mode = (defined $last_mode ? $last_mode : '>>') unless length $mode;
+                    $mode = '|-' if $mode eq '|';
+
+                    unshift @{$target{open}}, $fn
+                        if length $fn;
+
+                    $target{mode} = $mode;
                 }
             }
-            else {
-                croak "missing target file name";
+
+            $target{mode} =~ /^(?:>{1,2}&?|\|-|CODE)$/ or croak "invalid mode '$target{mode}'";
+
+            # file name is next argument or slurp everything when mode is '|-'
+            unless (@{$target{open}} > 0) {
+                if (ref $arg ne 'HASH' and @_) {
+                    if ($target{mode} eq '|-') {
+                        @{$target{open}} = splice @_;
+                    }
+                    else {
+                        my $last_mode = $target{mode};
+                        @{$target{open}} = shift;
+                    }
+                }
+                else {
+                    croak "missing target file name";
+                }
             }
-        }
 
-        $target{open}[0] = qualify_to_ref($target{open}[0], caller)
-            if $target{mode} =~ tr/&//;
+            $target{open}[0] = qualify_to_ref($target{open}[0], caller)
+                if $target{mode} =~ tr/&//;
 
-        unless ($target{mode} eq '|-') {
-            open my $teefh, $target{mode}, @{$target{open}}
-                or return undef;
-            if ($target{reopen}) {
-                $target{mode} =~ s/>+/>>/;
-                close $teefh
+            unless ($target{mode} eq '|-')  {
+                open my $teefh, $target{mode}, @{$target{open}}
                     or return undef;
-            }
-            else {
-                $target{teefh} = $teefh;
-                if ($target{autoflush}) {
-                    my $oldsel = select $teefh;
-                    $| = 1;
-                    select $oldsel;
+
+                if ($target{reopen}) {
+                    $target{mode} =~ s/>+/>>/;
+                    close $teefh
+                        or return undef;
+                }
+                else {
+                    $target{teefh} = $teefh;
+                    if ($target{autoflush}) {
+                        my $oldsel = select $teefh;
+                        $| = 1;
+                        select $oldsel;
+                    }
                 }
             }
         }
@@ -145,6 +159,11 @@ sub tee (*;@) {
         my $oldsel = select STDERR;
         $| = 1;
 
+        for my $target (@target) {
+            my $begin = $target->{begin};
+            &$begin if $begin;
+        }
+
         while(!$error) {
             my $line = <>;
             last unless defined $line;
@@ -152,42 +171,57 @@ sub tee (*;@) {
             # print $fh $line;
             for my $target (@target) {
                 my $cp = $line;
-                $cp = join('', $target->{process}($cp)) if $target->{process};
+                $cp = join('', $target->{preprocess}($cp)) if $target->{preprocess};
                 $cp = $target->{prefix} . $cp if length $target->{prefix};
-                my $teefh = $target->{teefh};
-                unless ($teefh) {
-                    undef $teefh;
-                    if (open $teefh, $target->{mode}, @{$target->{open}}) {
-                        unless ($target->{reopen}) {
-                            $target->{teefh} = $teefh;
-                            if ($target->{autoflush}) {
-                                my $oldsel = select $teefh;
-                                $| = 1;
-                                select $oldsel;
+                my $process = $target->{process};
+                if ($process) {
+                    my $ok;
+                    $ok = &$process for ($cp);
+                    $error = 1 unless ($ok or $target->{ignore_errors});
+                }
+                else {
+                    my $teefh = $target->{teefh};
+                    unless ($teefh) {
+                        undef $teefh;
+                        if (open $teefh, $target->{mode}, @{$target->{open}}) {
+                            unless ($target->{reopen}) {
+                                $target->{teefh} = $teefh;
+                                if ($target->{autoflush}) {
+                                    my $oldsel = select $teefh;
+                                    $| = 1;
+                                    select $oldsel;
+                                }
                             }
                         }
+                        else {
+                            $error = 1 unless $target->{ignore_errors};
+                            next;
+                        }
                     }
-                    else {
-                        $error = 1;
-                        next;
-                    }
-                }
-                flock($teefh, LOCK_EX) if $target->{lock};
-                print $teefh $cp;
-                flock($teefh, LOCK_UN) if $target->{lock};
+                    flock($teefh, LOCK_EX) if $target->{lock};
+                    print $teefh $cp;
+                    flock($teefh, LOCK_UN) if $target->{lock};
 
-                if ($target->{reopen}) {
-                    close $teefh or $error = 1;
-                    delete $target->{teefh};
+                    if ($target->{reopen}) {
+                        unless (close $teefh) {
+                            $error = 1 unless $target->{ignore_errors};
+                        }
+                        delete $target->{teefh};
+                    }
                 }
             }
-
         }
 
         for my $target (@target) {
+
+            my $end = $target->{end};
+            &$end if $end;
+
             my $teefh = $target->{teefh};
             if ($teefh) {
-                close $teefh or $error = 1;
+                unless (close $teefh) {
+                    $error = 1 unless $target->{ignore_errors};
+                }
             }
         }
 
@@ -230,17 +264,14 @@ File::Tee - replicate data sent to a Perl stream
 
 =head1 DESCRIPTION
 
-This module is able to replicate the data written to a Perl stream
-to another stream(s). It is the Perl equivalent of the shell utility
+This module is able to replicate data written to a Perl stream into
+another streams. It is the Perl equivalent of the shell utility
 L<tee(1)>.
 
 It is implemeted around C<fork>, creating a new process for every
 tee'ed stream. That way, there are no problems handling the output
 generated by external programs run with L<system|perlfunc/system>
 or by XS modules that don't go through L<perlio>.
-
-On the other hand, it will probably fail to work on Windows... that's
-a feature :-)
 
 =head2 API
 
@@ -280,6 +311,12 @@ File handles can also be used as targets:
    open my $target1, '>>', '/foo/bar';
    ...
    tee STDOUT, $target1, $target2, ...;
+
+Finally, code references can also be used as targets. The callback
+will be invoked for every line written to the tee'ed stream with the
+data in C<$_>. It has to return a true value on success or false if
+some error happens. Also, note that the callback will be called from a
+different process.
 
 =item * hash references describing the targets
 
@@ -326,7 +363,7 @@ For instance:
   tee STDOUT, { prefix => 'OUT: ', lock => 1, mode => '>>', open => '/tmp/out.txt' };
   tee STDERR, { prefix => 'ERR: ', lock => 1, mode => '>>', open => '/tmp/out.txt' };
 
-=item process => sub { ... }
+=item preprocess => sub { ... }
 
 A callback function that can modify the data before it gets sent to
 the target file.
@@ -346,11 +383,37 @@ For instance:
     join('', @out);
   }
 
-  tee BINFH, { process => \&hexdump, open => '/tmp/hexout'};
+  tee BINFH, { preprocess => \&hexdump, open => '/tmp/hexout'};
 
 =item autoflush => $bool
 
 Sets autoflush mode for the target streams. Default is on.
+
+=item ignore_errors => $bool
+
+By default, when writting to the targets, any error will close the
+tee'ed handle. This option allows to change that behaviour.
+
+=item process => sub { ... }
+
+the callback will be called for every line read (see using code
+references as targets discussion above). This option can not be used
+at the same time as most other options (open, reopen, lock, autoflush,
+etc.).
+
+=item begin => sub { ... }
+
+=item end => sub { ... }
+
+Those functions are called on the forked process before the first
+write and when closing the handle respectively.
+
+For instance:
+
+  my @capture;
+  tee STDERR, { process => sub { push @capture, $_ },
+                end => sub { send_mail 'foo@bar.com', 'stderr capture', "@capture" } };
+
 
 =back
 
@@ -375,9 +438,9 @@ You could also want to set the tee'ed stream in autoflush mode:
 
 =head1 BUGS
 
-This is alpha software, not very tested. Expect bugs on it.
+Does not work on Windows (patches welcome).
 
-Probably, would not work on Windows.
+This is alpha software, not very tested. Expect bugs on it.
 
 Send bug reports by email or via L<the CPAN RT web|https://rt.cpan.org>.
 
@@ -385,6 +448,9 @@ Send bug reports by email or via L<the CPAN RT web|https://rt.cpan.org>.
 
 L<IO::Tee> is a similar module implemented around tied file
 handles.
+
+The L<Tee> module allows to launch external processes capturing their
+output to some files.
 
 =head1 COPYRIGHT AND LICENSE
 
