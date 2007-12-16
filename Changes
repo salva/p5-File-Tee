@@ -1,5 +1,9 @@
 Revision history for Perl extension File::Tee.
 
+0.04  16 Dec, 1007
+        - <> was reading from @ARGV when present in children processes
+          (bug reported by Daniel).
+
 0.03  Oct 18, 2007
         - new ignore_errors option added
         - new begin and end options added

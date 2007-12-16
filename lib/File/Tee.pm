@@ -1,6 +1,6 @@
 package File::Tee;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 use strict;
 use warnings;
@@ -154,6 +154,7 @@ sub tee (*;@) {
         defined $pid
             or return undef;
 
+        undef @ARGV;
         my $error = 0;
 
         my $oldsel = select STDERR;
