@@ -1,6 +1,11 @@
 Revision history for Perl extension File::Tee.
 
-0.04  16 Dec, 1007
+0.05  Jul 23, 2008
+        - print data to primary output file handled as soon as it
+          becomes available (bug report by Samuel Wang)
+        - add t/pods.t to MANIFEST
+
+0.04  Dec 16, 2007
         - <> was reading from @ARGV when present in children processes
           (bug reported by Daniel).
 

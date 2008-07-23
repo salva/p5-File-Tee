@@ -1,6 +1,6 @@
 package File::Tee;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 use strict;
 use warnings;
@@ -164,50 +164,69 @@ sub tee (*;@) {
             my $begin = $target->{begin};
             &$begin if $begin;
         }
-
-        while(!$error) {
-            my $line = <>;
-            last unless defined $line;
-            print $out $line;
-            # print $fh $line;
-            for my $target (@target) {
-                my $cp = $line;
-                $cp = join('', $target->{preprocess}($cp)) if $target->{preprocess};
-                $cp = $target->{prefix} . $cp if length $target->{prefix};
-                my $process = $target->{process};
-                if ($process) {
-                    my $ok;
-                    $ok = &$process for ($cp);
-                    $error = 1 unless ($ok or $target->{ignore_errors});
+        my $buffer = '';
+        my $eof;
+        while(!$error and !$eof) {
+            my $read = sysread STDIN, $buffer, 16*1024, length $buffer;
+            if ($read) {
+                print $out substr $buffer, -$read;
+            }
+            else {
+                $eof = 1;
+            }
+            while (!$error and length $buffer) {
+                my $line;
+                my $eol = index $buffer, $/;
+                if ($eol >= 0) {
+                    $line = substr $buffer, 0, $eol + length $/, '';
+                }
+                elsif ($eof) {
+                    $line = $buffer;
+                    $buffer = '';
                 }
                 else {
-                    my $teefh = $target->{teefh};
-                    unless ($teefh) {
-                        undef $teefh;
-                        if (open $teefh, $target->{mode}, @{$target->{open}}) {
-                            unless ($target->{reopen}) {
-                                $target->{teefh} = $teefh;
-                                if ($target->{autoflush}) {
-                                    my $oldsel = select $teefh;
-                                    $| = 1;
-                                    select $oldsel;
+                    last;
+                }
+
+                for my $target (@target) {
+                    my $cp = $line;
+                    $cp = join('', $target->{preprocess}($cp)) if $target->{preprocess};
+                    $cp = $target->{prefix} . $cp if length $target->{prefix};
+                    my $process = $target->{process};
+                    if ($process) {
+                        my $ok;
+                        $ok = &$process for ($cp);
+                        $error = 1 unless ($ok or $target->{ignore_errors});
+                    }
+                    else {
+                        my $teefh = $target->{teefh};
+                        unless ($teefh) {
+                            undef $teefh;
+                            if (open $teefh, $target->{mode}, @{$target->{open}}) {
+                                unless ($target->{reopen}) {
+                                    $target->{teefh} = $teefh;
+                                    if ($target->{autoflush}) {
+                                        my $oldsel = select $teefh;
+                                        $| = 1;
+                                        select $oldsel;
+                                    }
                                 }
                             }
+                            else {
+                                $error = 1 unless $target->{ignore_errors};
+                                next;
+                            }
                         }
-                        else {
-                            $error = 1 unless $target->{ignore_errors};
-                            next;
-                        }
-                    }
-                    flock($teefh, LOCK_EX) if $target->{lock};
-                    print $teefh $cp;
-                    flock($teefh, LOCK_UN) if $target->{lock};
+                        flock($teefh, LOCK_EX) if $target->{lock};
+                        print $teefh $cp;
+                        flock($teefh, LOCK_UN) if $target->{lock};
 
-                    if ($target->{reopen}) {
-                        unless (close $teefh) {
-                            $error = 1 unless $target->{ignore_errors};
+                        if ($target->{reopen}) {
+                            unless (close $teefh) {
+                                $error = 1 unless $target->{ignore_errors};
+                            }
+                            delete $target->{teefh};
                         }
-                        delete $target->{teefh};
                     }
                 }
             }
@@ -448,14 +467,15 @@ Send bug reports by email or via L<the CPAN RT web|https://rt.cpan.org>.
 =head1 SEE ALSO
 
 L<IO::Tee> is a similar module implemented around tied file
-handles.
+handles. L<Tee> allows to launch external processes capturing their
+output to some files. L<IO::CaptureOutput> allows to capture the
+output generated from a child process or a subroutine.
 
-The L<Tee> module allows to launch external processes capturing their
-output to some files.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2007 by Salvador FandiE<ntilde>o (sfandino@yahoo.com)
+Copyright (C) 2007, 2008 by Salvador FandiE<ntilde>o
+(sfandino@yahoo.com)
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself, either Perl version 5.8.8 or,

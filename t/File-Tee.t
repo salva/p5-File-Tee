@@ -3,12 +3,13 @@
 use strict;
 use warnings;
 
-use Test::More tests => 38;
+use Test::More tests => 50;
 
 use File::Tee qw(tee);
 
 open my $tfh, '>', 't/test_data'
     or die "unable to open test file";
+select((select($tfh), $| = 1)[0]);
 
 open my $cfh, '>', 't/test_control'
     or die "unable to open test control file";
@@ -36,6 +37,20 @@ for (0..10) {
     ok(print($cfh $l), "print $_ c");
 }
 
+for $l ("missing end of line...", "more data...", "end of line\n") {
+    chomp (my $l1 = $l);
+    ok(print($tfh $l), "missing end of line - $l1");
+    ok(print($cfh $l), "missing end of line - $l1 c");
+    $out .= $l;
+    sleep 1;
+    ok(open my $meof, '<', 't/test_data');
+    {
+        local $/;
+        is(scalar(<$meof>), $out);
+    }
+    close($meof);
+}
+
 alarm 10;
 ok(close($tfh), "close tfh");
 alarm 0;
@@ -52,13 +67,13 @@ ok(open $cp5fh, '<', 't/test_copy_5');
 
 {
     local $/;
-    is($out, scalar(<$cfh>));
-    is($out, scalar(<$tfh>));
-    is($out, scalar(<$cpfh>));
-    is($out, scalar(<$cp2fh>));
-    is($out, scalar(<$cp3fh>));
-    is($out, scalar(<$cp4fh>));
-    is($out, scalar(<$cp5fh>));
+    is(scalar(<$cfh>), $out, 'output $cfh');
+    is(scalar(<$tfh>), $out, 'output $tfh');
+    is(scalar(<$cpfh>), $out, 'output $cpfh');
+    is(scalar(<$cp2fh>), $out, 'output $cp2fh');
+    is(scalar(<$cp3fh>), $out, 'output $cp3fh');
+    is(scalar(<$cp4fh>), $out, 'output $cp4fh');
+    is(scalar(<$cp5fh>), $out, 'output $cp5fh');
 }
 
 END {
