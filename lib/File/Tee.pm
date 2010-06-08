@@ -1,6 +1,6 @@
 package File::Tee;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 use strict;
 use warnings;
@@ -153,6 +153,8 @@ sub tee (*;@) {
     unless ($pid) {
         defined $pid
             or return undef;
+
+	$SIG{INT} = 'IGNORE';
 
         undef @ARGV;
         my $error = 0;
@@ -474,7 +476,7 @@ output generated from a child process or a subroutine.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright (C) 2007, 2008 by Salvador FandiE<ntilde>o
+Copyright (C) 2007, 2008, 2010 by Salvador FandiE<ntilde>o
 (sfandino@yahoo.com)
 
 This library is free software; you can redistribute it and/or modify

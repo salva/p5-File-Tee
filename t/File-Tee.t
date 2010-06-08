@@ -34,6 +34,7 @@ for (0..10) {
     $l = "hello world ($_)\n";
     $out .= $l;
     ok(print($tfh $l), "print $_ t");
+    kill INT => $pid;
     ok(print($cfh $l), "print $_ c");
 }
 
