@@ -155,8 +155,9 @@ sub tee (*;@) {
             or return undef;
 
 	$SIG{INT} = 'IGNORE';
-
         undef @ARGV;
+        eval { $0 = "perl [File::Tee]" };
+
         my $error = 0;
 
         my $oldsel = select STDERR;
@@ -254,6 +255,7 @@ sub tee (*;@) {
     # close $teefh;
 
     $oldsel = select($fh);
+    no warnings 'once';
     ($|, $%, $=, $-, $~, $^, $.) = @oldstate;
     select($oldsel);
 
